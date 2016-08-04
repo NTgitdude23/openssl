@@ -2864,7 +2864,11 @@ void ssl_update_cache(SSL *s, int mode)
         if ((((mode & SSL_SESS_CACHE_CLIENT)
               ? s->session_ctx->stats.sess_connect_good
               : s->session_ctx->stats.sess_accept_good) & 0xff) == 0xff) {
+            #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
             SSL_CTX_flush_sessions(s->session_ctx, (unsigned long)time(NULL));
+            #else
+            SSL_CTX_flush_sessions(s->session_ctx, (unsigned long)ossl_deterministic_time(NULL));
+            #endif
         }
     }
 }

@@ -3934,7 +3934,11 @@ int ssl_fill_hello_random(SSL *s, int server, unsigned char *result, int len)
     else
         send_time = (s->mode & SSL_MODE_SEND_CLIENTHELLO_TIME) != 0;
     if (send_time) {
+        #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
         unsigned long Time = (unsigned long)time(NULL);
+        #else
+        unsigned long Time = (unsigned long)ossl_deterministic_time(NULL);
+        #endif
         unsigned char *p = result;
         l2n(Time, p);
         return RAND_bytes(p, len - 4);

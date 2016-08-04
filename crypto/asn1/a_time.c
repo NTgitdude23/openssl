@@ -127,7 +127,12 @@ static int asn1_time_to_tm(struct tm *tm, const ASN1_TIME *t)
 {
     if (t == NULL) {
         time_t now_t;
+        #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
         time(&now_t);
+        #else
+        ossl_deterministic_time(&now_t);
+        #endif
+
         if (OPENSSL_gmtime(&now_t, tm))
             return 1;
         return 0;

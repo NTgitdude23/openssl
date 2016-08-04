@@ -309,7 +309,11 @@ int OCSP_check_validity(ASN1_GENERALIZEDTIME *thisupd,
 {
     int ret = 1;
     time_t t_now, t_tmp;
+    #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
     time(&t_now);
+    #else
+    ossl_deterministic_time(&t_now);
+    #endif
     /* Check thisUpdate is valid and not more than nsec in the future */
     if (!ASN1_GENERALIZEDTIME_check(thisupd)) {
         OCSPerr(OCSP_F_OCSP_CHECK_VALIDITY, OCSP_R_ERROR_IN_THISUPDATE_FIELD);

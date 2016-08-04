@@ -419,7 +419,11 @@ static void get_current_time(struct timeval *t)
     t->tv_sec = (long)tb.time;
     t->tv_usec = (long)tb.millitm * 1000;
 #else
+    #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
     gettimeofday(t, NULL);
+    #else
+    ossl_deterministic_gettimeofday(t, NULL);
+    #endif
 #endif
 }
 

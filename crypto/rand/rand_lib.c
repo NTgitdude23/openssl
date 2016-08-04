@@ -8,6 +8,7 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 #include "internal/cryptlib.h"
 #include <openssl/opensslconf.h>
@@ -116,6 +117,34 @@ int RAND_pseudo_bytes(unsigned char *buf, int num)
     return (-1);
 }
 #endif
+
+
+/* for lack of a better place to put this... */
+time_t
+ossl_deterministic_time(time_t *ret)
+{
+    #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    return time(ret);
+    #else
+    static time_t clock = 0x5612e984; // oct 2015, make sure certs agree!
+    time_t now = clock++;
+    if(ret)
+        *ret = now;
+    return now;
+    #endif
+}
+
+int
+ossl_deterministic_gettimeofday(struct timeval *tv, struct timezone *tz)
+{
+    #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
+    return gettimeofday(tv, tz);
+    #else
+    tv->tv_sec = time(0);
+    tv->tv_usec = 0;
+    return 0;
+    #endif
+}
 
 int RAND_status(void)
 {

@@ -119,7 +119,11 @@ static int ssl_read(BIO *b, char *out, int outl)
         if ((sb->renegotiate_timeout > 0) && (!r)) {
             unsigned long tm;
 
+            #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
             tm = (unsigned long)time(NULL);
+            #else
+            tm = (unsigned long)ossl_deterministic_time(NULL);
+            #endif
             if (tm > sb->last_time + sb->renegotiate_timeout) {
                 sb->last_time = tm;
                 sb->num_renegotiates++;
@@ -192,7 +196,11 @@ static int ssl_write(BIO *b, const char *out, int outl)
         if ((bs->renegotiate_timeout > 0) && (!r)) {
             unsigned long tm;
 
+            #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
             tm = (unsigned long)time(NULL);
+            #else
+            tm = (unsigned long)ossl_deterministic_time(NULL);
+            #endif
             if (tm > bs->last_time + bs->renegotiate_timeout) {
                 bs->last_time = tm;
                 bs->num_renegotiates++;
@@ -271,7 +279,11 @@ static long ssl_ctrl(BIO *b, int cmd, long num, void *ptr)
         if (num < 60)
             num = 5;
         bs->renegotiate_timeout = (unsigned long)num;
+        #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
         bs->last_time = (unsigned long)time(NULL);
+        #else
+        bs->last_time = (unsigned long)ossl_deterministic_time(NULL);
+        #endif
         break;
     case BIO_C_SET_SSL_RENEGOTIATE_BYTES:
         ret = bs->renegotiate_count;

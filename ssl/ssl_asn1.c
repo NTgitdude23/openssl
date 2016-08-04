@@ -297,7 +297,11 @@ SSL_SESSION *d2i_SSL_SESSION(SSL_SESSION **a, const unsigned char **pp,
     if (as->time != 0)
         ret->time = as->time;
     else
+        #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
         ret->time = (unsigned long)time(NULL);
+        #else
+        ret->time = (unsigned long)ossl_deterministic_time(NULL);
+        #endif
 
     if (as->timeout != 0)
         ret->timeout = as->timeout;

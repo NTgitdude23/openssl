@@ -218,7 +218,11 @@ static info_cb get_callback(SSL *s)
 static int state_machine(SSL *s, int server)
 {
     BUF_MEM *buf = NULL;
+    #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
     unsigned long Time = (unsigned long)time(NULL);
+    #else
+    unsigned long Time = (unsigned long)ossl_deterministic_time(NULL);
+    #endif
     void (*cb) (const SSL *ssl, int type, int val) = NULL;
     OSSL_STATEM *st = &s->statem;
     int ret = -1;

@@ -1886,7 +1886,11 @@ ASN1_TIME *X509_time_adj_ex(ASN1_TIME *s,
     if (in_tm)
         t = *in_tm;
     else
+        #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
         time(&t);
+        #else
+        ossl_deterministic_time(&t);
+        #endif
 
     if (s && !(s->flags & ASN1_STRING_FLAG_MSTRING)) {
         if (s->type == V_ASN1_UTCTIME)

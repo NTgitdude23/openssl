@@ -90,7 +90,11 @@ SSL_SESSION *SSL_SESSION_new(void)
     ss->verify_result = 1;      /* avoid 0 (= X509_V_OK) just in case */
     ss->references = 1;
     ss->timeout = 60 * 5 + 4;   /* 5 minute timeout by default */
+    #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
     ss->time = (unsigned long)time(NULL);
+    #else
+    ss->time = (unsigned long)ossl_deterministic_time(NULL);
+    #endif
     ss->lock = CRYPTO_THREAD_lock_new();
     if (ss->lock == NULL) {
         SSLerr(SSL_F_SSL_SESSION_NEW, ERR_R_MALLOC_FAILURE);
@@ -578,7 +582,11 @@ int ssl_get_prev_session(SSL *s, const PACKET *ext, const PACKET *session_id)
             goto err;
     }
 
+    #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
     if (ret->timeout < (long)(time(NULL) - ret->time)) { /* timeout */
+    #else
+    if (ret->timeout < (long)(ossl_deterministic_time(NULL) - ret->time)) { /* timeout */
+    #endif
         s->session_ctx->stats.sess_timeout++;
         if (try_session_cache) {
             /* session was from the cache, so remove it */

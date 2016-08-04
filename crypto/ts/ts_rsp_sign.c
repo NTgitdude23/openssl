@@ -84,7 +84,11 @@ static int def_time_cb(struct TS_resp_ctx *ctx, void *data,
                        long *sec, long *usec)
 {
     time_t t;
+    #ifndef FUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION
     if (time(&t) == (time_t)-1) {
+    #else
+    if (ossl_deterministic_time(&t) == (time_t)-1) {
+    #endif
         TSerr(TS_F_DEF_TIME_CB, TS_R_TIME_SYSCALL_ERROR);
         TS_RESP_CTX_set_status_info(ctx, TS_STATUS_REJECTION,
                                     "Time is not available.");
