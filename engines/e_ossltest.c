@@ -15,6 +15,8 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stddef.h>
+
 
 #include <openssl/engine.h>
 #include <openssl/sha.h>
@@ -221,47 +223,228 @@ static int ossltest_digest_nids(const int **nids)
     return pos;
 }
 
+/* Setup RSA */
+
+int ossltest_rsa_verify (int dtype, const unsigned char *m,
+                       unsigned int m_length, const unsigned char *sigbuf,
+                       unsigned int siglen, const RSA *rsa);
+
+int ossltest_rsa_sign (int type,
+                     const unsigned char *m, unsigned int m_length,
+                     unsigned char *sigret, unsigned int *siglen,
+                     const RSA *rsa);
+
+struct rsa_meth_st {
+    char *name;
+    int (*rsa_pub_enc) (int flen, const unsigned char *from,
+                        unsigned char *to, RSA *rsa, int padding);
+    int (*rsa_pub_dec) (int flen, const unsigned char *from,
+                        unsigned char *to, RSA *rsa, int padding);
+    int (*rsa_priv_enc) (int flen, const unsigned char *from,
+                         unsigned char *to, RSA *rsa, int padding);
+    int (*rsa_priv_dec) (int flen, const unsigned char *from,
+                         unsigned char *to, RSA *rsa, int padding);
+    /* Can be null */
+    int (*rsa_mod_exp) (BIGNUM *r0, const BIGNUM *I, RSA *rsa, BN_CTX *ctx);
+    /* Can be null */
+    int (*bn_mod_exp) (BIGNUM *r, const BIGNUM *a, const BIGNUM *p,
+                       const BIGNUM *m, BN_CTX *ctx, BN_MONT_CTX *m_ctx);
+    /* called at new */
+    int (*init) (RSA *rsa);
+    /* called at free */
+    int (*finish) (RSA *rsa);
+    /* RSA_METHOD_FLAG_* things */
+    int flags;
+    /* may be needed! */
+    char *app_data;
+    /*
+     * New sign and verify functions: some libraries don't allow arbitrary
+     * data to be signed/verified: this allows them to be used. Note: for
+     * this to work the RSA_public_decrypt() and RSA_private_encrypt() should
+     * *NOT* be used RSA_sign(), RSA_verify() should be used instead.
+     */
+    int (*rsa_sign) (int type,
+                     const unsigned char *m, unsigned int m_length,
+                     unsigned char *sigret, unsigned int *siglen,
+                     const RSA *rsa);
+    int (*rsa_verify) (int dtype, const unsigned char *m,
+                       unsigned int m_length, const unsigned char *sigbuf,
+                       unsigned int siglen, const RSA *rsa);
+    /*
+     * If this callback is NULL, the builtin software RSA key-gen will be
+     * used. This is for behavioural compatibility whilst the code gets
+     * rewired, but one day it would be nice to assume there are no such
+     * things as "builtin software" implementations.
+     */
+    int (*rsa_keygen) (RSA *rsa, int bits, BIGNUM *e, BN_GENCB *cb);
+};
+
+static RSA_METHOD ossl_rsa = {
+    "OpenSSL Test RSA method", //name
+    NULL,   //rsa_pub_enc
+    NULL,   //rsa_pub_dec
+    NULL,   //rsa_priv_enc
+    NULL,   //rsa_priv_dec
+    NULL,   //rsa_mod_exp
+    NULL,   //bn_mod_exp
+    NULL,   //init
+    NULL,   //finish
+    0,      //flags
+    NULL,   //app_data
+    NULL,
+    ossltest_rsa_verify,
+    NULL    //rsa_keygen
+};
+
+/* RSA */
+
+int ossltest_rsa_verify (int dtype, const unsigned char *m,
+                       unsigned int m_length, const unsigned char *sigbuf,
+                       unsigned int siglen, const RSA *rsa)
+{
+    return 1;
+}
+
 /* Setup ciphers */
 static int ossltest_ciphers(ENGINE *, const EVP_CIPHER **,
                             const int **, int);
 
-static int ossltest_cipher_nids[] = {
-    NID_aes_128_cbc, 0
-};
-
-/* AES128 */
-
-int ossltest_aes128_init_key(EVP_CIPHER_CTX *ctx, const unsigned char *key,
+#define OSSLT_CIPHER_INIT_FUNCTION_NAME(ciphername) \
+    ossltest_ ## ciphername ## _init_key
+#define OSSLT_CIPHER_INIT_FUNCTION_DEC(ciphername) \
+    int ossltest_ ## ciphername ## _init_key(EVP_CIPHER_CTX *ctx, const unsigned char *key, \
                              const unsigned char *iv, int enc);
-int ossltest_aes128_cbc_cipher(EVP_CIPHER_CTX *ctx, unsigned char *out,
-                               const unsigned char *in, size_t inl);
-
-static EVP_CIPHER *_hidden_aes_128_cbc = NULL;
-static const EVP_CIPHER *ossltest_aes_128_cbc(void)
-{
-    if (_hidden_aes_128_cbc == NULL
-        && ((_hidden_aes_128_cbc = EVP_CIPHER_meth_new(NID_aes_128_cbc,
-                                                       16 /* block size */,
-                                                       16 /* key len */)) == NULL
-            || !EVP_CIPHER_meth_set_iv_length(_hidden_aes_128_cbc,16)
-            || !EVP_CIPHER_meth_set_flags(_hidden_aes_128_cbc,
-                                          EVP_CIPH_FLAG_DEFAULT_ASN1
-                                          | EVP_CIPH_CBC_MODE)
-            || !EVP_CIPHER_meth_set_init(_hidden_aes_128_cbc,
-                                         ossltest_aes128_init_key)
-            || !EVP_CIPHER_meth_set_do_cipher(_hidden_aes_128_cbc,
-                                              ossltest_aes128_cbc_cipher)
-            || !EVP_CIPHER_meth_set_impl_ctx_size(_hidden_aes_128_cbc,
-                                                  EVP_CIPHER_impl_ctx_size(EVP_aes_128_cbc())))) {
-        EVP_CIPHER_meth_free(_hidden_aes_128_cbc);
-        _hidden_aes_128_cbc = NULL;
+#define OSSLT_CIPHER_INIT_FUNCTION_DEF(ciphername, cipherevp) \
+    int ossltest_ ## ciphername ## _init_key(EVP_CIPHER_CTX *ctx, const unsigned char *key, \
+                             const unsigned char *iv, int enc) \
+    { \
+        return EVP_CIPHER_meth_get_init( cipherevp () ) (ctx, key, iv, enc); \
     }
-    return _hidden_aes_128_cbc;
-}
+#define OSSLT_CIPHER_CIPHER_FUNCTION_NAME(ciphername) \
+    ossltest_ ## ciphername ## _cipher
+#define OSSLT_CIPHER_CIPHER_FUNCTION_DEC(ciphername) \
+    int ossltest_ ## ciphername ## _cipher(EVP_CIPHER_CTX *ctx, unsigned char *out, \
+                                   const unsigned char *in, size_t inl);
+#define OSSLT_CIPHER_CIPHER_FUNCTION_DEF(ciphername, cipherevp) \
+    int ossltest_ ## ciphername ## _cipher(EVP_CIPHER_CTX *ctx, unsigned char *out, \
+                                   const unsigned char *in, size_t inl) \
+    { \
+        /* printf("Ciphering in " #ciphername "\n"); */	\
+        unsigned char *tmpbuf;\
+        int ret; \
+        \
+        tmpbuf = OPENSSL_malloc(inl);\
+        if (tmpbuf == NULL)\
+            return -1;\
+        \
+        /* Remember what we were asked to encrypt */\
+        memcpy(tmpbuf, in, inl);\
+        \
+        /* Go through the motions of encrypting it */\
+        ret = EVP_CIPHER_meth_get_do_cipher( cipherevp ())(ctx, out, in, inl);\
+        \
+        /* Throw it all away and just use the plaintext as the output */\
+        memcpy(out, tmpbuf, inl);\
+        OPENSSL_free(tmpbuf);\
+        \
+        if(ret == -1) \
+            return 1; /* Everything is fine! */ \
+        return ret;\
+    }
+
+#define OSSLT_CIPHER_SETUP_NAME(ciphername) ossltest_ ## ciphername
+
+#define OSSLT_CIPHER_SETUP(ciphername, ciphernid, blocksize, ivlen, keylen, cipherflags, cipherevp) \
+    static EVP_CIPHER * _hidden_ ## ciphername = NULL; \
+    static const EVP_CIPHER * OSSLT_CIPHER_SETUP_NAME(ciphername) (void) \
+    { \
+        if (_hidden_ ## ciphername == NULL \
+            && ((_hidden_ ## ciphername = EVP_CIPHER_meth_new(ciphernid, \
+                                                           blocksize /* block size */, \
+                                                           keylen /* key len */)) == NULL \
+                || !EVP_CIPHER_meth_set_iv_length(_hidden_ ## ciphername , ivlen) \
+                || !EVP_CIPHER_meth_set_flags(_hidden_ ## ciphername , \
+                                              cipherflags) \
+                || !EVP_CIPHER_meth_set_init(_hidden_ ## ciphername , \
+                                              OSSLT_CIPHER_INIT_FUNCTION_NAME(ciphername)) \
+                || !EVP_CIPHER_meth_set_do_cipher(_hidden_ ## ciphername , \
+                                              OSSLT_CIPHER_CIPHER_FUNCTION_NAME(ciphername)) \
+                || !EVP_CIPHER_meth_set_ctrl(_hidden_ ## ciphername, \
+                                              EVP_CIPHER_meth_get_ctrl(cipherevp ())) \
+                || !EVP_CIPHER_meth_set_impl_ctx_size(_hidden_ ## ciphername , \
+                                              EVP_CIPHER_impl_ctx_size(cipherevp ())))) { \
+            EVP_CIPHER_meth_free(_hidden_ ## ciphername ); \
+            _hidden_ ## ciphername  = NULL; \
+        } \
+        return _hidden_ ## ciphername ; \
+    } 
+
+
+OSSLT_CIPHER_INIT_FUNCTION_DEC(aes128_cbc);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEC(aes128_cbc);
+OSSLT_CIPHER_SETUP(aes128_cbc, NID_aes_128_cbc, 16, 16, 16, (EVP_CIPH_FLAG_DEFAULT_ASN1 | EVP_CIPH_CBC_MODE), EVP_aes_128_cbc);
+
+OSSLT_CIPHER_INIT_FUNCTION_DEC(aes256_cbc);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEC(aes256_cbc);
+OSSLT_CIPHER_SETUP(aes256_cbc, NID_aes_256_cbc, 16, 16, 32, (EVP_CIPH_FLAG_DEFAULT_ASN1 | EVP_CIPH_CBC_MODE), EVP_aes_256_cbc);
+
+#define AEAD_FLAGS (EVP_CIPH_FLAG_DEFAULT_ASN1 | EVP_CIPH_CUSTOM_IV | EVP_CIPH_FLAG_CUSTOM_CIPHER | EVP_CIPH_ALWAYS_CALL_INIT | EVP_CIPH_CTRL_INIT | EVP_CIPH_CUSTOM_COPY | EVP_CIPH_FLAG_AEAD_CIPHER)
+
+OSSLT_CIPHER_INIT_FUNCTION_DEC(aes128_gcm);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEC(aes128_gcm);
+OSSLT_CIPHER_SETUP(aes128_gcm, NID_aes_128_gcm, 1, 16, 16, (AEAD_FLAGS | EVP_CIPH_GCM_MODE), EVP_aes_128_gcm);
+
+OSSLT_CIPHER_INIT_FUNCTION_DEC(aes256_gcm);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEC(aes256_gcm);
+OSSLT_CIPHER_SETUP(aes256_gcm, NID_aes_256_gcm, 1, 16, 32, (AEAD_FLAGS | EVP_CIPH_GCM_MODE), EVP_aes_256_gcm);
+
+OSSLT_CIPHER_INIT_FUNCTION_DEC(aes128_ccm);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEC(aes128_ccm);
+OSSLT_CIPHER_SETUP(aes128_ccm, NID_aes_128_ccm, 1, 16, 16, (AEAD_FLAGS | EVP_CIPH_CCM_MODE), EVP_aes_128_ccm);
+
+OSSLT_CIPHER_INIT_FUNCTION_DEC(aes256_ccm);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEC(aes256_ccm);
+OSSLT_CIPHER_SETUP(aes256_ccm, NID_aes_256_ccm, 1, 16, 32, (AEAD_FLAGS | EVP_CIPH_CCM_MODE), EVP_aes_256_ccm);
+
+OSSLT_CIPHER_INIT_FUNCTION_DEC(camellia128_cbc);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEC(camellia128_cbc);
+OSSLT_CIPHER_SETUP(camellia128_cbc, NID_camellia_128_cbc, 16, 16, 16, (EVP_CIPH_FLAG_DEFAULT_ASN1 | EVP_CIPH_CBC_MODE), EVP_camellia_128_cbc);
+
+OSSLT_CIPHER_INIT_FUNCTION_DEC(camellia256_cbc);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEC(camellia256_cbc);
+OSSLT_CIPHER_SETUP(camellia256_cbc, NID_camellia_256_cbc, 16, 16, 32, (EVP_CIPH_FLAG_DEFAULT_ASN1 | EVP_CIPH_CBC_MODE), EVP_camellia_256_cbc);
+
+OSSLT_CIPHER_INIT_FUNCTION_DEC(seed128_cbc);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEC(seed128_cbc);
+OSSLT_CIPHER_SETUP(seed128_cbc, NID_seed_cbc, 16, 16, 16, (EVP_CIPH_FLAG_DEFAULT_ASN1 | EVP_CIPH_CBC_MODE), EVP_seed_cbc);
+
+OSSLT_CIPHER_INIT_FUNCTION_DEC(idea_cbc);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEC(idea_cbc);
+OSSLT_CIPHER_SETUP(idea_cbc, NID_idea_cbc, 8, 8, 16, (EVP_CIPH_FLAG_DEFAULT_ASN1 | EVP_CIPH_CBC_MODE), EVP_idea_cbc);
+
+OSSLT_CIPHER_INIT_FUNCTION_DEC(des_ede_cbc);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEC(des_ede_cbc);
+OSSLT_CIPHER_SETUP(des_ede_cbc, NID_des_ede3_cbc, 8, 8, 24, (EVP_CIPH_FLAG_DEFAULT_ASN1 | EVP_CIPH_CBC_MODE), EVP_des_ede3_cbc);
+
+
+#define OSSLT_CIPHER_DESTROY(ciphername) \
+    EVP_CIPHER_meth_free(_hidden_ ## ciphername); \
+    _hidden_ ## ciphername = NULL;
+
+
 static void destroy_ciphers(void)
 {
-    EVP_CIPHER_meth_free(_hidden_aes_128_cbc);
-    _hidden_aes_128_cbc = NULL;
+    OSSLT_CIPHER_DESTROY(aes128_cbc);
+    OSSLT_CIPHER_DESTROY(aes256_cbc);
+    OSSLT_CIPHER_DESTROY(aes128_gcm);
+    OSSLT_CIPHER_DESTROY(aes256_gcm);
+    OSSLT_CIPHER_DESTROY(aes128_ccm);
+    OSSLT_CIPHER_DESTROY(aes256_ccm);
+    OSSLT_CIPHER_DESTROY(camellia128_cbc);
+    OSSLT_CIPHER_DESTROY(camellia256_cbc);
+    OSSLT_CIPHER_DESTROY(seed128_cbc);
+    OSSLT_CIPHER_DESTROY(idea_cbc);
+    OSSLT_CIPHER_DESTROY(des_ede_cbc);
 }
 
 static int bind_ossltest(ENGINE *e)
@@ -273,6 +456,7 @@ static int bind_ossltest(ENGINE *e)
         || !ENGINE_set_name(e, engine_ossltest_name)
         || !ENGINE_set_digests(e, ossltest_digests)
         || !ENGINE_set_ciphers(e, ossltest_ciphers)
+        || !ENGINE_set_RSA(e, &ossl_rsa)
         || !ENGINE_set_destroy_function(e, ossltest_destroy)
         || !ENGINE_set_init_function(e, ossltest_init)
         || !ENGINE_set_finish_function(e, ossltest_finish)) {
@@ -290,6 +474,18 @@ static int bind_helper(ENGINE *e, const char *id)
         return 0;
     if (!bind_ossltest(e))
         return 0;
+
+    const RSA_METHOD *meth1;
+    meth1 = RSA_PKCS1_OpenSSL();
+    ossl_rsa.rsa_pub_enc = meth1->rsa_pub_enc;
+    ossl_rsa.rsa_pub_dec = meth1->rsa_pub_dec;
+    ossl_rsa.rsa_priv_enc = meth1->rsa_priv_enc;
+    ossl_rsa.rsa_priv_dec = meth1->rsa_priv_dec;
+    ossl_rsa.rsa_mod_exp = meth1->rsa_mod_exp;
+    ossl_rsa.bn_mod_exp = meth1->bn_mod_exp;
+    ossl_rsa.init = meth1->init;
+    ossl_rsa.finish = meth1->finish;
+
     return 1;
 }
 
@@ -374,6 +570,17 @@ static int ossltest_digests(ENGINE *e, const EVP_MD **digest,
     return ok;
 }
 
+static int ossltest_cipher_nids[] = {
+    NID_aes_128_cbc, NID_aes_256_cbc, 
+    NID_aes_128_ccm, NID_aes_256_ccm,
+    NID_aes_128_gcm, NID_aes_256_gcm,
+    NID_camellia_128_cbc, NID_camellia_256_cbc,
+    NID_seed_cbc,
+    NID_idea_cbc,
+    NID_des_ede3_cbc,    
+    0
+};
+
 static int ossltest_ciphers(ENGINE *e, const EVP_CIPHER **cipher,
                           const int **nids, int nid)
 {
@@ -387,7 +594,37 @@ static int ossltest_ciphers(ENGINE *e, const EVP_CIPHER **cipher,
     /* We are being asked for a specific cipher */
     switch (nid) {
     case NID_aes_128_cbc:
-        *cipher = ossltest_aes_128_cbc();
+        *cipher = OSSLT_CIPHER_SETUP_NAME(aes128_cbc) ();
+        break;
+    case NID_aes_256_cbc:
+        *cipher = OSSLT_CIPHER_SETUP_NAME(aes256_cbc) ();
+        break;
+    case NID_aes_128_ccm:
+        *cipher = OSSLT_CIPHER_SETUP_NAME(aes128_ccm) ();
+        break;
+    case NID_aes_256_ccm:
+        *cipher = OSSLT_CIPHER_SETUP_NAME(aes256_ccm) ();
+        break;
+    case NID_aes_128_gcm:
+        *cipher = OSSLT_CIPHER_SETUP_NAME(aes128_gcm) ();
+        break;
+    case NID_aes_256_gcm:
+        *cipher = OSSLT_CIPHER_SETUP_NAME(aes256_gcm) ();
+        break;
+    case NID_camellia_128_cbc:
+        *cipher = OSSLT_CIPHER_SETUP_NAME(camellia128_cbc) ();
+        break;
+    case NID_camellia_256_cbc:
+        *cipher = OSSLT_CIPHER_SETUP_NAME(camellia256_cbc) ();
+        break;
+    case NID_seed_cbc:
+        *cipher = OSSLT_CIPHER_SETUP_NAME(seed128_cbc) ();
+        break;
+    case NID_idea_cbc:
+        *cipher = OSSLT_CIPHER_SETUP_NAME(idea_cbc) ();
+        break;
+    case NID_des_ede3_cbc:
+        *cipher = OSSLT_CIPHER_SETUP_NAME(des_ede_cbc) ();
         break;
     default:
         ok = 0;
@@ -535,34 +772,34 @@ static int digest_sha512_final(EVP_MD_CTX *ctx, unsigned char *md)
 }
 
 /*
- * AES128 Implementation
+ * Cipher Implementations
  */
 
-int ossltest_aes128_init_key(EVP_CIPHER_CTX *ctx, const unsigned char *key,
-                             const unsigned char *iv, int enc)
-{
-    return EVP_CIPHER_meth_get_init(EVP_aes_128_cbc()) (ctx, key, iv, enc);
-}
+OSSLT_CIPHER_INIT_FUNCTION_DEF(aes128_cbc, EVP_aes_128_cbc);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEF(aes128_cbc, EVP_aes_128_cbc);
+OSSLT_CIPHER_INIT_FUNCTION_DEF(aes256_cbc, EVP_aes_256_cbc);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEF(aes256_cbc, EVP_aes_256_cbc);
 
-int ossltest_aes128_cbc_cipher(EVP_CIPHER_CTX *ctx, unsigned char *out,
-                               const unsigned char *in, size_t inl)
-{
-    unsigned char *tmpbuf;
-    int ret;
+OSSLT_CIPHER_INIT_FUNCTION_DEF(aes128_gcm, EVP_aes_128_gcm);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEF(aes128_gcm, EVP_aes_128_gcm);
+OSSLT_CIPHER_INIT_FUNCTION_DEF(aes256_gcm, EVP_aes_256_gcm);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEF(aes256_gcm, EVP_aes_256_gcm);
 
-    tmpbuf = OPENSSL_malloc(inl);
-    if (tmpbuf == NULL)
-        return -1;
+OSSLT_CIPHER_INIT_FUNCTION_DEF(aes128_ccm, EVP_aes_128_ccm);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEF(aes128_ccm, EVP_aes_128_ccm);
+OSSLT_CIPHER_INIT_FUNCTION_DEF(aes256_ccm, EVP_aes_256_ccm);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEF(aes256_ccm, EVP_aes_256_ccm);
 
-    /* Remember what we were asked to encrypt */
-    memcpy(tmpbuf, in, inl);
+OSSLT_CIPHER_INIT_FUNCTION_DEF(camellia128_cbc, EVP_camellia_128_cbc);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEF(camellia128_cbc, EVP_camellia_128_cbc);
+OSSLT_CIPHER_INIT_FUNCTION_DEF(camellia256_cbc, EVP_camellia_256_cbc);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEF(camellia256_cbc, EVP_camellia_256_cbc);
 
-    /* Go through the motions of encrypting it */
-    ret = EVP_CIPHER_meth_get_do_cipher(EVP_aes_128_cbc())(ctx, out, in, inl);
+OSSLT_CIPHER_INIT_FUNCTION_DEF(seed128_cbc, EVP_seed_cbc);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEF(seed128_cbc, EVP_seed_cbc);
 
-    /* Throw it all away and just use the plaintext as the output */
-    memcpy(out, tmpbuf, inl);
-    OPENSSL_free(tmpbuf);
+OSSLT_CIPHER_INIT_FUNCTION_DEF(idea_cbc, EVP_idea_cbc);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEF(idea_cbc, EVP_idea_cbc);
 
-    return ret;
-}
+OSSLT_CIPHER_INIT_FUNCTION_DEF(des_ede_cbc, EVP_des_ede3_cbc);
+OSSLT_CIPHER_CIPHER_FUNCTION_DEF(des_ede_cbc, EVP_des_ede3_cbc);
