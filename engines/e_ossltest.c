@@ -450,7 +450,7 @@ static void destroy_ciphers(void)
 static int bind_ossltest(ENGINE *e)
 {
     /* Ensure the ossltest error handling is set up */
-    ERR_load_OSSLTEST_strings();
+  //    ERR_load_OSSLTEST_strings();
 
     if (!ENGINE_set_id(e, engine_ossltest_id)
         || !ENGINE_set_name(e, engine_ossltest_name)

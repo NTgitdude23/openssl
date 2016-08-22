@@ -1,0 +1,94 @@
+#!/bin/sh
+#
+# generate various certificate types needed for testing.
+#
+
+OPENSSL=../../apps/openssl
+export LD_LIBRARY_PATH=../../
+
+run=true  # run all commands
+gost=false # run gost commands
+
+rm -f *.srl
+
+if $run ; then # make SRP password database
+    rm -f srppw; touch srppw
+    echo "unique_subject = yes" > srppw.attr
+    echo "enter 'user' when prompted for password"
+    $OPENSSL srp -srpvfile srppw -add -gn 1536 user
+fi
+
+if $run ; then # make an RSA self-signed cert
+    $OPENSSL genrsa -out rsa-key.pem 1024
+    $OPENSSL req -config ../../apps/openssl.cnf -new -subj "/C=US/ST=HI/O=NCC Group/OU=Testers/CN=www.evil.com" -key rsa-key.pem -out rsa-req.pem
+    $OPENSSL x509 -req -in rsa-req.pem -signkey rsa-key.pem -out rsa-cert.pem -CAcreateserial
+    cat rsa-cert.pem rsa-key.pem > server-rsa.pem
+fi
+
+if $run ; then # make self-signed DSA cert
+    $OPENSSL dsaparam -genkey -out dsa-key.pem 1024
+    $OPENSSL req -config ../../apps/openssl.cnf -new -subj "/C=US/ST=HI/O=NCC Group/OU=Testers/CN=www.evil.com" -key dsa-key.pem -out dsa-req.pem
+    $OPENSSL x509 -req -in dsa-req.pem -signkey dsa-key.pem -out dsa-cert.pem -CAcreateserial
+    cat dsa-cert.pem dsa-key.pem > server-dsa.pem
+fi
+
+if $run ; then # make self-signed ECDSA cert
+    $OPENSSL ecparam -genkey -out ecdsa-key.pem -name secp256k1
+    $OPENSSL req -config ../../apps/openssl.cnf -new -subj "/C=US/ST=HI/O=NCC Group/OU=Testers/CN=www.evil.com" -key ecdsa-key.pem -out ecdsa-req.pem
+    $OPENSSL x509 -req -in ecdsa-req.pem -signkey ecdsa-key.pem -out ecdsa-cert.pem -CAcreateserial
+    cat ecdsa-cert.pem ecdsa-key.pem > server-ecdsa.pem
+fi
+
+if $run && $gost ; then # make self-signed GOST cert
+    $OPENSSL genpkey -engine gost -algorithm gost2001 -pkeyopt paramset:xa -out gost-key.pem 
+    $OPENSSL req -config ../../apps/openssl.cnf -engine gost -new -subj "/C=US/ST=HI/O=NCC Group/OU=Testers/CN=www.evil.com" -key gost-key.pem -out gost-req.pem
+    $OPENSSL x509 -engine gost -req -in gost-req.pem -signkey gost-key.pem -out gost-cert.pem -CAcreateserial
+    cat gost-cert.pem gost-key.pem > server-gost.pem
+fi
+
+if $run ; then # make an RSA CA cert
+    $OPENSSL genrsa -out rsaca-key.pem 1024
+    $OPENSSL req -config ../../apps/openssl.cnf -new -subj "/C=US/ST=HI/O=NCC Group/OU=Testers/CN=RSACA" -extensions v3_ca -key rsaca-key.pem -out rsaca-req.pem
+    $OPENSSL x509 -req -extensions v3_ca -in rsaca-req.pem -signkey rsaca-key.pem -out rsaca-cert.pem -CAcreateserial
+fi
+
+if $run ; then # make an DSA CA cert
+    $OPENSSL dsaparam -genkey -out dsaca-key.pem 1024
+    $OPENSSL req -config ../../apps/openssl.cnf -new -subj "/C=US/ST=HI/O=NCC Group/OU=Testers/CN=DSACA" -extensions v3_ca -key dsaca-key.pem -out dsaca-req.pem
+    $OPENSSL x509 -req -extensions v3_ca -in dsaca-req.pem -signkey dsaca-key.pem -out dsaca-cert.pem -CAcreateserial
+fi
+
+if $run ; then # make an ECDSA CA cert
+    $OPENSSL ecparam -genkey -out ecdsaca-key.pem -name secp256k1
+    $OPENSSL req -config ../../apps/openssl.cnf -new -subj "/C=US/ST=HI/O=NCC Group/OU=Testers/CN=ECDSACA" -extensions v3_ca -key ecdsaca-key.pem -out ecdsaca-req.pem
+    $OPENSSL x509 -req -extensions v3_ca -in ecdsaca-req.pem -signkey ecdsaca-key.pem -out ecdsaca-cert.pem -CAcreateserial
+fi
+
+if $run ; then # DH key for DSA certs
+  $OPENSSL dhparam -out dh-param.pem 1024
+  $OPENSSL genpkey -paramfile dh-param.pem -out dh-key.pem
+  $OPENSSL pkey -in dh-key.pem -text -pubout -out dh-pub.pem
+fi
+  
+if $run ; then # DH certs with RSA and DSA CA
+  $OPENSSL x509 -req -in rsa-req.pem -CAkey rsaca-key.pem -CA rsaca-cert.pem -force_pubkey dh-pub.pem -out rsa_dh-cert.pem -CAcreateserial
+  cat rsa_dh-cert.pem dh-key.pem > server-rsa_dh.pem
+  
+  $OPENSSL x509 -req -in dsa-req.pem -CAkey dsaca-key.pem -CA dsaca-cert.pem -force_pubkey dh-pub.pem -out dsa_dh-cert.pem -CAcreateserial
+  cat dsa_dh-cert.pem dh-key.pem > server-dsa_dh.pem
+fi
+
+if $run ; then # ECDH key for DSA certs
+  $OPENSSL ecparam -out ecdh-param.pem -name secp256k1
+  $OPENSSL genpkey -paramfile ecdh-param.pem -out ecdh-key.pem
+  $OPENSSL pkey -in ecdh-key.pem -text -pubout -out ecdh-pub.pem
+fi
+
+if $run ; then # ECDH certs with RSA and ECDSA CA
+  $OPENSSL x509 -req -in rsa-req.pem -CAkey rsaca-key.pem -CA rsaca-cert.pem -force_pubkey ecdh-pub.pem -out rsa_ecdh-cert.pem -CAcreateserial
+  cat rsa_ecdh-cert.pem ecdh-key.pem > server-rsa_ecdh.pem
+  
+  $OPENSSL x509 -req -in ecdsa-req.pem -CAkey ecdsaca-key.pem -CA ecdsaca-cert.pem -force_pubkey ecdh-pub.pem -out ecdsa_ecdh-cert.pem -CAcreateserial
+  cat ecdsa_ecdh-cert.pem ecdh-key.pem > server-ecdsa_ecdh.pem
+fi
+

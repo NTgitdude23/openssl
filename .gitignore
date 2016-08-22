@@ -16,6 +16,7 @@
 
 # *all* Makefiles
 Makefile
+!test/ftls/Makefile
 
 # Links under apps
 /apps/CA.pl
